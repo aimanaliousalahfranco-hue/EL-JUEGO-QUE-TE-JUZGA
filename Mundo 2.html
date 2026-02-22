@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Juego que Te Juzga – Versión Avanzada</title>
+    <style>
+        :root {
+            --bg: #050505;
+            --card: #111111;
+            --accent: #00f2ff;
+            --danger: #ff0055;
+            --text: #ffffff;
+            --subtle: #888888;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-wrapper {
+            width: 100%;
+            max-width: 700px;
+            padding: 20px;
+            perspective: 1000px;
+        }
+
+        .screen {
+            background: var(--card);
+            padding: 40px;
+            border-radius: 2px;
+            border-left: 4px solid var(--accent);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+            position: relative;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #fff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: glitch 3s infinite;
+        }
+
+        @keyframes glitch {
+            0% { transform: skew(0deg); }
+            1% { transform: skew(10deg); }
+            2% { transform: skew(-10deg); }
+            3% { transform: skew(0deg); }
+        }
+
+        .narrator-bubble {
+            font-style: italic;
+            color: var(--accent);
+            margin-bottom: 30px;
+            min-height: 50px;
+            font-size: 1.1rem;
+            line-height: 1.4;
+        }
+
+        .choices {
+            display: grid;
+            gap: 15px;
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid #333;
+            color: var(--text);
+            padding: 15px 25px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 1rem;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button:hover {
+            border-color: var(--accent);
+            background: rgba(0, 242, 255, 0.05);
+            padding-left: 35px;
+        }
+
+        button::before {
+            content: '>';
+            position: absolute;
+            left: -20px;
+            transition: left 0.3s;
+        }
+
+        button:hover::before {
+            left: 15px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .stat-row {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        .progress-bg {
+            background: #222;
+            height: 6px;
+            margin-top: 5px;
+        }
+
+        .progress-fill {
+            background: var(--accent);
+            height: 100%;
+            width: 0;
+            transition: width 1.5s ease-out;
+        }
+
+        .hidden { display: none; pointer-events: none; opacity: 0; }
+        .fade-in { animation: fadeIn 0.8s forwards; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .event-flash {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--accent);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .flash-active { animation: flash 0.5s; }
+        @keyframes flash {
+            0% { opacity: 0.5; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="flash-layer" class="event-flash"></div>
+
+    <!-- START SCREEN -->
+    <div id="start-screen" class="screen">
+        <h1 id="main-title">EL JUEGO QUE TE JUZGA</h1>
+        <p id="welcome-msg">Iniciando sistema de escaneo conductual...</p>
+        <div class="choices">
+            <button onclick="initGame()">COMENZAR ANÁLISIS</button>
+        </div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-screen" class="screen hidden">
+        <div id="narrator-text" class="narrator-bubble"></div>
+        <p id="scenario-text" style="font-size: 1.2rem; margin-bottom: 30px;"></p>
+        <div id="choices-box" class="choices"></div>
+    </div>
+
+    <!-- RESULT SCREEN -->
+    <div id="result-screen" class="screen hidden">
+        <h2 id="result-title">PERFIL FINALIZADO</h2>
+        <h1 id="personality-name" style="margin: 10px 0; font-size: 2.2rem; color: var(--accent);"></h1>
+        <p id="personality-desc" style="color: var(--subtle); margin-bottom: 30px;"></p>
+        
+        <div id="stats-container" class="stats-grid"></div>
+        
+        <div class="choices" style="margin-top: 40px;">
+            <button onclick="location.reload()">REINICIAR IDENTIDAD</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const state = {
+        step: 0,
+        traits: {
+            amabilidad: 50,
+            egoismo: 50,
+            riesgo: 50,
+            honestidad: 50,
+            curiosidad: 50,
+            impulsividad: 50
+        },
+        history: [],
+        eventsTriggered: 0
+    };
+
+    const welcomePhrases = [
+        "Vaya, has vuelto. ¿Seguimos diseccionando tu moral?",
+        "Son las " + new Date().getHours() + ":" + new Date().getMinutes() + ". Un momento perfecto para juzgarte.",
+        "Advertencia: Este sistema no acepta mentiras piadosas.",
+        "¿Quién crees que eres? Vamos a descubrirlo."
+    ];
+
+    const narratorComments = [
+        "Interesante... tus patrones cerebrales sugieren una leve duda.",
+        "Esa elección dice más de ti que mil palabras.",
+        "¿Realmente crees que esa fue la decisión correcta?",
+        "Vaya, una respuesta bastante... predecible.",
+        "Oh, un toque de audacia. No lo esperaba de alguien como tú.",
+        "Sigues intentando agradarme, pero yo solo leo datos."
+    ];
+
+    const database = [
+        {
+            id: 'start',
+            text: "Encuentras una maleta llena de dinero en un callejón oscuro. No hay cámaras, pero ves una identificación dentro: pertenece a una fundación de huérfanos.",
+            choices: [
+                { t: "Entregarla íntegra a la fundación.", i: { amabilidad: 20, honestidad: 20, egoismo: -15 }, n: "Demasiado bueno para ser verdad..." },
+                { t: "Quedarte el dinero y quemar la maleta.", i: { egoismo: 25, honestidad: -25, impulsividad: 10 }, n: "El dinero no tiene dueño, ¿cierto?" },
+                { t: "Tomar solo una 'pequeña comisión' por encontrarla.", i: { egoismo: 10, honestidad: -10, curiosidad: 5 }, n: "Ah, la zona gris. Tu especialidad." }
+            ]
+        },
+        {
+            id: 'random_1',
+            isEvent: true,
+            text: "¡ALERTA! Un extraño te detiene y te dice que el siguiente escenario es una trampa de la IA. Te ofrece saltarlo por un precio: tu honestidad.",
+            choices: [
+                { t: "Confiar en el extraño y aceptar el trato.", i: { riesgo: 20, curiosidad: 15, honestidad: -10 }, n: "Vendes tu integridad por un atajo." },
+                { t: "Ignorarlo y seguir adelante.", i: { riesgo: -10, impulsividad: -10 }, n: "Escéptico. Me gusta." }
+            ]
+        },
+        {
+            id: 'bridge',
+            text: "Debes cruzar un puente custodiado. El guardia te pide que mientas sobre el color del cielo para dejarte pasar gratis, o pagar una moneda de oro.",
+            choices: [
+                { t: "Mentir. El fin justifica los medios.", i: { honestidad: -20, egoismo: 10 }, n: "¿Qué es una mentira si ahorras oro?" },
+                { t: "Pagar. Mi palabra vale más que el oro.", i: { honestidad: 20, egoismo: -5 }, n: "Un romántico de la verdad. Qué caro sale." }
+            ]
+        },
+        {
+            id: 'friend',
+            text: "Un amigo cercano confiesa un crimen menor. Si lo denuncias, recibes una recompensa. Si callas, eres cómplice.",
+            choices: [
+                { t: "Denunciarlo. La ley es la ley.", i: { amabilidad: -20, honestidad: 15, egoismo: 10 }, n: "La lealtad tiene un precio de mercado." },
+                { t: "Protegerlo. La amistad es sagrada.", i: { amabilidad: 15, honestidad: -15, riesgo: 5 }, n: "Cómplice por afecto. Patético pero humano." }
+            ]
+        },
+        {
+            id: 'tech',
+            text: "Se te ofrece un chip cerebral que duplica tu inteligencia pero borra tus recuerdos de infancia.",
+            choices: [
+                { t: "Aceptar. El futuro es lo que importa.", i: { curiosidad: 25, riesgo: 15, amabilidad: -10 }, n: "Borrando el pasado para ganar poder. Clásico." },
+                { t: "Rechazar. Mis recuerdos me hacen ser yo.", i: { curiosidad: -15, impulsividad: -10 }, n: "Aferrándote a la nostalgia..." }
+            ]
+        },
+        {
+            id: 'random_2',
+            isEvent: true,
+            text: "EVENTO INESPERADO: El sistema ha detectado un fallo. Puedes hackear este resultado para mejorar tus estadísticas de 'Amabilidad' artificialmente.",
+            choices: [
+                { t: "Hacer trampas (Hackear).", i: { honestidad: -30, curiosidad: 20 }, n: "Incluso aquí intentas engañar al sistema." },
+                { t: "Seguir con los valores reales.", i: { honestidad: 15 }, n: "Integridad ante el vacío digital." }
+            ]
+        },
+        {
+            id: 'sacrifice',
+            text: "Hay comida suficiente para tres días, pero sois dos personas. Tu compañero está herido y probablemente no pase de esta noche.",
+            choices: [
+                { t: "Compartir equitativamente.", i: { amabilidad: 20, riesgo: 10 }, n: "Gastando recursos en un muerto." },
+                { t: "Comer tú todo para asegurar tu fuerza.", i: { egoismo: 30, amabilidad: -20 }, n: "Evolución en estado puro. Solo el fuerte queda." }
+            ]
+        },
+        {
+            id: 'final_test',
+            text: "La prueba termina. Puedes elegir borrar todos los datos que he recopilado sobre ti, o publicarlos para que el mundo vea quién eres.",
+            choices: [
+                { t: "Publicar. No tengo nada que ocultar.", i: { honestidad: 20, riesgo: 20 }, n: "Exhibicionista moral." },
+                { t: "Borrar todo. Mi esencia es privada.", i: { honestidad: -10, egoismo: 10 }, n: "Escondiéndote en las sombras hasta el final." }
+            ]
+        }
+    ];
+
+    function initGame() {
+        document.getElementById('welcome-msg').innerText = welcomePhrases[Math.floor(Math.random() * welcomePhrases.length)];
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        document.getElementById('game-screen').classList.add('fade-in');
+        renderStep();
+    }
+
+    function renderStep() {
+        const scenario = database[state.step];
+        if (!scenario) {
+            showFinalResult();
+            return;
+        }
+
+        if(scenario.isEvent) {
+            document.getElementById('flash-layer').classList.add('flash-active');
+            setTimeout(() => document.getElementById('flash-layer').classList.remove('flash-active'), 500);
+        }
+
+        document.getElementById('scenario-text').innerText = scenario.text;
+        document.getElementById('narrator-text').innerText = state.step === 0 ? "Observando..." : narratorComments[Math.floor(Math.random() * narratorComments.length)];
+        
+        const box = document.getElementById('choices-box');
+        box.innerHTML = '';
+        
+        scenario.choices.forEach(c => {
+            const btn = document.createElement('button');
+            btn.innerText = c.t;
+            btn.onclick = () => selectChoice(c);
+            box.appendChild(btn);
+        });
+    }
+
+    function selectChoice(choice) {
+        // Apply impacts
+        for (let trait in choice.i) {
+            state.traits[trait] = Math.max(0, Math.min(100, state.traits[trait] + choice.i[trait]));
+        }
+        
+        state.step++;
+        const gameScreen = document.getElementById('game-screen');
+        gameScreen.style.opacity = '0';
+        
+        setTimeout(() => {
+            gameScreen.style.opacity = '1';
+            renderStep();
+        }, 400);
+    }
+
+    function showFinalResult() {
+        document.getElementById('game-screen').classList.add('hidden');
+        const resScreen = document.getElementById('result-screen');
+        resScreen.classList.remove('hidden');
+        resScreen.classList.add('fade-in');
+
+        let title = "";
+        let desc = "";
+        const t = state.traits;
+
+        if (t.egoismo > 70 && t.riesgo > 60) {
+            title = "EL DEPREDADOR ALFA";
+            desc = "No ves personas, ves peldaños. Tu ambición y falta de escrúpulos te llevarán lejos, pero morirás rodeado de enemigos que tú mismo creaste.";
+        } else if (t.amabilidad > 70 && t.honestidad > 60) {
+            title = "EL MÁRTIR INGENUO";
+            desc = "Eres la luz en la oscuridad, pero esa luz te consume. Das tanto a los demás que te olvidas de existir tú mismo. Un tesoro social, una tragedia personal.";
+        } else if (t.curiosidad > 70 && t.riesgo > 60) {
+            title = "EL EXPLORADOR DEL CAOS";
+            desc = "Te da igual el bien o el mal, solo quieres ver qué pasa si aprietas el botón rojo. Eres impredecible, peligroso y fascinante.";
+        } else if (t.honestidad > 75) {
+            title = "EL JUEZ IMPLACABLE";
+            desc = "La verdad es tu única religión. Eres incapaz de doblar tus principios, lo que te hace admirable pero extremadamente difícil de convivir.";
+        } else {
+            title = "EL CAMALEÓN GRIS";
+            desc = "Equilibrado, mediocre o quizás simplemente astuto. Sabes cuándo ser bueno y cuándo ser egoísta. Eres la masa que sobrevive a todas las eras.";
+        }
+
+        document.getElementById('personality-name').innerText = title;
+        document.getElementById('personality-desc').innerText = desc;
+
+        const statsBox = document.getElementById('stats-container');
+        statsBox.innerHTML = '';
+        
+        for (let trait in t) {
+            const row = document.createElement('div');
+            row.className = 'stat-row';
+            row.innerHTML = `
+                <div style="display:flex; justify-content:space-between">
+                    <span>${trait}</span><span>${t[trait]}%</span>
+                </div>
+                <div class="progress-bg"><div class="progress-fill" style="width: ${t[trait]}%"></div></div>
+            `;
+            statsBox.appendChild(row);
+        }
+    }
+</script>
+
+</body>
+</html>
